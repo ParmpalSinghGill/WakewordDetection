@@ -6,6 +6,7 @@ import librosa.display
 import tensorflow as tf
 from matplotlib import pyplot as plt
 import sounddevice as sd
+from tensorflow.keras import models,layers,losses,optimizers
 
 
 feature_sets_file = 'all_targets_mfcc_sets.npz'
@@ -67,10 +68,10 @@ def plotmfccs(mffcs):
     plt.show()
 
 def getMFCC(data,samplerate):
-    # mfccs = python_speech_features.base.mfcc(data,samplerate=new_rate,
-    #      winlen=0.256,winstep=0.050,numcep=num_mfcc,nfilt=26,
-    #      nfft=2048,preemph=0.0,ceplifter=0,appendEnergy=False,winfunc=np.hanning)
-    mfccs = python_speech_features.base.mfcc(data, samplerate=samplerate, numcep=num_mfcc)
+    mfccs = python_speech_features.base.mfcc(data,samplerate=samplerate,
+         winlen=0.256,winstep=0.050,numcep=num_mfcc,nfilt=26,
+         nfft=2048,preemph=0.0,ceplifter=0,appendEnergy=False,winfunc=np.hanning)
+    # mfccs = python_speech_features.base.mfcc(data, samplerate=samplerate, numcep=num_mfcc)
     # MFCC1 = librosa.feature.mfcc(data, sr=samplerate, n_mfcc=num_mfcc)
     # plt.figure(figsize=(12, 4))
     # librosa.display.waveshow(data, sr=samplerate)
@@ -79,15 +80,70 @@ def getMFCC(data,samplerate):
     return mfccs
 
 
+
+
+# def convertSampleRate(ds,new_rate=8000):
+#     for audio in ds["audio"]:
+#         data = audio["array"]
+#         sampling_rate = audio["sampling_rate"]
+#         assert new_rate < sampling_rate, "upsampling is notpossible "
+#         data = decimate(data, sampling_rate, new_rate)
+#         audio["array"] = data
+#         audio["sampling_rate"] = new_rate
+#     return ds
+#
+# def preprocessData(ds):
+#     convertSampleRate(ds, new_rate=sample_rate)
+#     audios = ds["audio"]
+#     mfccs=[]
+#     for audio in audios:
+#         mfccs.append(getMFCC(audio["array"], sample_rate))
+#     ds["audiomfccs"] = np.expand_dims(mfccs,axis=-1)
+#     return ds
+
 def convertSampleRate(ds,new_rate=8000):
-    audios = ds["audio"]
-    for audio in audios:
-        data=audio["array"]
-        sampling_rate=audio["sampling_rate"]
-        assert new_rate<sampling_rate, "upsampling is notpossible "
-        data=decimate(data,sampling_rate,new_rate)
-        audio["array"] = data
-        audio["sampling_rate"] = new_rate
-        audio["mfccs"] = getMFCC(data,new_rate)
+    data = ds["audio"]["array"]
+    sampling_rate =  ds["audio"]["sampling_rate"]
+    assert new_rate < sampling_rate, "upsampling is notpossible "
+    data = decimate(data, sampling_rate, new_rate)
+    ds["audio"]["array"] = data
+    ds["audio"]["sampling_rate"] = new_rate
     return ds
 
+def preprocessData(ds):
+    convertSampleRate(ds, new_rate=sample_rate)
+    # ds["audiomfccs"] = np.expand_dims(getMFCC(ds["audio"]["array"], sample_rate),axis=-1)
+    ds["audiomfccs"] = getMFCC(ds["audio"]["array"], sample_rate)
+    return ds
+
+def getModel(input_shape,nclasses):
+    # Build model
+    print(input_shape)
+    model = models.Sequential()
+    model.add(layers.Conv2D(32,
+                            (2, 2),
+                            activation='relu',
+                            input_shape=input_shape))
+    model.add(layers.MaxPooling2D(pool_size=(2, 2)))
+
+    model.add(layers.Conv2D(32, (2, 2), activation='relu'))
+    model.add(layers.MaxPooling2D(pool_size=(2, 2)))
+
+    model.add(layers.Conv2D(64, (2, 2), activation='relu'))
+    model.add(layers.MaxPooling2D(pool_size=(2, 2)))
+
+    # Classifier
+    model.add(layers.Flatten())
+    model.add(layers.Dense(64, activation='relu'))
+    model.add(layers.Dropout(0.5))
+    model.add(layers.Dense(nclasses, activation='softmax'))
+
+    # Display model
+    model.summary()
+
+    # Add training parameters to model
+    model.compile(loss=losses.sparse_categorical_crossentropy,
+                  optimizer='rmsprop',
+                  metrics=['acc'])
+
+    return model
