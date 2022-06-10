@@ -5,7 +5,7 @@ import librosa
 import librosa.display
 import tensorflow as tf
 from matplotlib import pyplot as plt
-import sounddevice as sd
+from datasets import load_dataset
 from tensorflow.keras import models,layers,losses,optimizers
 
 
@@ -116,6 +116,37 @@ def preprocessData(ds):
     ds["audiomfccs"] = getMFCC(ds["audio"]["array"], sample_rate)
     return ds
 
+
+def Collator(ds):
+    labeles,feautres=[],[]
+    for d in ds:
+        labeles.append(d["label"])
+        feautres.append(np.reshape(np.concatenate(d["audiomfccs"]),(-1,len(d["audiomfccs"][0]),1)))
+    feautres,labeles= np.array(feautres),np.array(labeles)
+    feautres,labeles= tf.convert_to_tensor(feautres),tf.convert_to_tensor(labeles)
+    # return feautres,labeles
+    return {"features":feautres,"label":labeles}
+
+def loadData(split="test",batch_size=32):
+    # ds = load_dataset("speech_commands","v0.01", split="validation")
+    ds = load_dataset("speech_commands","v0.02",split=split)
+    # print(ClassLabel(ds))
+    print(ds.features)
+    # ds.set_transform(preprocessData)
+    ds=ds.filter(lambda x:x["audio"]["array"].shape[0]==16000)
+    ds=ds.map(preprocessData)
+    train_dataset = ds.to_tf_dataset(
+        columns=['audiomfccs'],
+        shuffle=True,
+        batch_size=batch_size,
+        collate_fn=Collator,
+        label_cols="label"
+    )
+    inputshape=(*np.array(ds[0]["audiomfccs"]).shape,1)
+    num_classes=ds.features["label"].num_classes
+    return train_dataset,inputshape,num_classes
+
+
 def getModel(input_shape,nclasses):
     # Build model
     print(input_shape)
@@ -126,16 +157,24 @@ def getModel(input_shape,nclasses):
                             input_shape=input_shape))
     model.add(layers.MaxPooling2D(pool_size=(2, 2)))
 
-    model.add(layers.Conv2D(32, (2, 2), activation='relu'))
-    model.add(layers.MaxPooling2D(pool_size=(2, 2)))
+    # model.add(layers.Conv2D(32, (2, 2), activation='relu'))
+    # model.add(layers.MaxPooling2D(pool_size=(2, 2)))
 
     model.add(layers.Conv2D(64, (2, 2), activation='relu'))
     model.add(layers.MaxPooling2D(pool_size=(2, 2)))
 
     # Classifier
     model.add(layers.Flatten())
+    # model.add(layers.Dense(256, activation='relu'))
+    # # model.add(layers.Dropout(0.2))
+    # model.add(layers.Dense(512, activation='relu'))
+    # # model.add(layers.Dropout(0.2))
+    # model.add(layers.Dense(256, activation='relu'))
+    # # model.add(layers.Dropout(0.2))
+    # model.add(layers.Dense(128, activation='relu'))
+    # model.add(layers.Dropout(0.2))
     model.add(layers.Dense(64, activation='relu'))
-    model.add(layers.Dropout(0.5))
+    model.add(layers.Dropout(0.2))
     model.add(layers.Dense(nclasses, activation='softmax'))
 
     # Display model
@@ -143,7 +182,7 @@ def getModel(input_shape,nclasses):
 
     # Add training parameters to model
     model.compile(loss=losses.sparse_categorical_crossentropy,
-                  optimizer='rmsprop',
+                  optimizer=optimizers.Adam(),
                   metrics=['acc'])
 
     return model

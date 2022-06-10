@@ -2,42 +2,20 @@ import datasets,time,scipy
 import soundfile as sf
 import tensorflow as tf
 import numpy as np
-from datasets import load_dataset, ClassLabel, Value
-from Utils import preprocessData,getModel
+from Utils import loadData,getModel
 
 batch_size=32
-def Collator(ds):
-    labeles,feautres=[],[]
-    for d in ds:
-        labeles.append(d["label"])
-        feautres.append(np.reshape(np.concatenate(d["audiomfccs"]),(-1,len(d["audiomfccs"][0]),1)))
-    feautres,labeles= np.array(feautres),np.array(labeles)
-    feautres,labeles= tf.convert_to_tensor(feautres),tf.convert_to_tensor(labeles)
-    # return feautres,labeles
-    return {"features":feautres,"label":labeles}
-
-def loadData(split="test"):
-    # ds = load_dataset("speech_commands","v0.01", split="validation")
-    ds = load_dataset("speech_commands","v0.02",split=split)
-    # print(ClassLabel(ds))
-    print(ds.features)
-    # ds.set_transform(preprocessData)
-    ds=ds.filter(lambda x:x["audio"]["array"].shape[0]==16000)
-    ds=ds.map(preprocessData)
-    train_dataset = ds.to_tf_dataset(
-        columns=['audiomfccs'],
-        shuffle=True,
-        batch_size=batch_size,
-        collate_fn=Collator,
-        label_cols="label"
-    )
-    inputshape=(*np.array(ds[0]["audiomfccs"]).shape,1)
-    num_classes=ds.features["label"].num_classes
-    return train_dataset,inputshape,num_classes
-
 def TrainModel(model,train_dataset,valid_dataset):
-    model.fit(train_dataset,epochs=20,validation_data=valid_dataset)
+    checkpoint_filepath = 'Models/'
     model.save("model.h5")
+    model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
+        filepath=checkpoint_filepath,
+        save_weights_only=True,
+        monitor='val_acc',
+        mode='max',
+        save_best_only=True)
+    model.fit(train_dataset,epochs=40,validation_data=valid_dataset,callbacks=[model_checkpoint_callback])
+    model.save("modelTraind.h5")
     # print(type(train_dataset))
     # d,l=next(iter(train_dataset))
     # print(d.shape)
@@ -46,8 +24,8 @@ def TrainModel(model,train_dataset,valid_dataset):
 
 if __name__ == '__main__':
     # loadData()
-    train_dataset,inputshape,num_classes=loadData("train")
-    valid_dataset,_,_=loadData("validation")
+    train_dataset,inputshape,num_classes=loadData("train",batch_size=batch_size)
+    valid_dataset,_,_=loadData("validation",batch_size=batch_size)
     model=getModel(inputshape,num_classes)
     TrainModel(model,train_dataset,valid_dataset)
 
